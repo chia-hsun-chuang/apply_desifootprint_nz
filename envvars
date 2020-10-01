@@ -1,0 +1,6 @@
+export LIGHTCONE_CODE_DIR=$HOME/code/gallightcone
+export POSTPROCESS_CODE_DIR=$HOME/code/apply_desifootprint_nz
+export JOBFORK_CODE_DIR=$HOME/code/jobfork
+
+export PATH=$PATH:$LIGHTCONE_CODE_DIR:$JOBFORK_CODE_DIR:$POSTPROCESS_CODE_DIR
+

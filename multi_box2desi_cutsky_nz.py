@@ -90,12 +90,12 @@ def write_catalog(fname, ra, dec, z, z_rsd):
 
 def process_shell(args):
     """ Downsample galaxies according to nz, apply footprint, generate randoms and write to disk """
-    i, nz_par, nrandoms, dir_out = args
+    i, nz_par, nrandoms, dir_out, lightcone_name_template, output_name_template, random_name_template = args
     galtype = nz_par["galtype_index"]
 
 
-    CAT_file = f"{dir_out}lightcone_multibox_galtype{galtype}_{i}.fits"
-    OUT_file = f"{dir_out}cutsky/shells/lightcone_multibox_galtype{galtype}_{i}_footprint_nz.fits"
+    CAT_file = dir_out+lightcone_name_template.format(galtype, i)
+    OUT_file = dir_out+output_name_template.format(galtype, i)
 
     if not os.path.exists(OUT_file):
         begin = time.perf_counter()
@@ -134,7 +134,7 @@ def process_shell(args):
     begin = time.perf_counter()
 
     for j in range(nrandoms):
-        OUT_file = f"{dir_out}cutsky/shells/randoms_{j}_lightcone_multibox_galtype{galtype}_{i}_footprint_nz.fits"
+        OUT_file = dir_out+random_name_template.format(j, galtype, i)
         if not os.path.exists(OUT_file):
             ra0       = np.random.rand(length)*360
             dec0      = np.arccos(2*np.random.rand(length)-1)*90/np.pi*2-90
@@ -160,6 +160,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("config", help="ini file holding configuration",
                     type=str)
 parser.add_argument("--dir_out", type=str, help="output directory (overrides config file)")
+parser.add_argument("--output_name_template", type=str, help="template for name of output catalogs (same)")
+parser.add_argument("--lightcone_name_template", type=str, help="template for name of lightcone catalogs (same)")
+parser.add_argument("--random_name_template", type=str, help="template for name of random catalogs (same)")
+parser.add_argument("--merged_randoms_1x_name_template", type=str, help="template for name of merged random catalogs (same)")
+parser.add_argument("--merged_randoms_nx_name_template", type=str, help="template for name of merged random catalogs, n times as big as the galaxy catalog (same)")
+parser.add_argument("--merged_shells_name_template", type=str, help="template for name of merged shells catalogs (same)")
 parser.add_argument("--shellnums", type=str, help="list of comma separated shell numbers to compute (same)")
 
 args = parser.parse_args()
@@ -169,17 +175,38 @@ configfile     = str(args.config) # config file
 config         = configparser.ConfigParser()
 config.read(configfile)
 
-file_alist        = config.get('dir','file_alist')
-file_camb         = config.get('dir','file_camb')
-dir_out           = args.dir_out
+file_alist                       = config.get('dir','file_alist')
+file_camb                        = config.get('dir','file_camb')
+dir_out                          = args.dir_out
+output_name_template             = args.output_name_template
+lightcone_name_template          = args.lightcone_name_template
+random_name_template             = args.random_name_template
+merged_randoms_1x_name_template  = args.merged_randoms_1x_name_template
+merged_randoms_nx_name_template  = args.merged_randoms_nx_name_template
+merged_shells_name_template      = args.merged_shells_name_template
 shellnums         = args.shellnums
+
 if dir_out is None:
-    dir_out       = config.get('dir','dir_out')
+    dir_out                         = config.get('dir','dir_out')
+if output_name_template is None:
+    output_name_template            = config.get('dir','output_name_template')
+if lightcone_name_template is None:
+    lightcone_name_template         = config.get('dir', 'lightcone_name_template')
+if random_name_template is None:
+    random_name_template            = config.get('dir','random_name_template')
+if merged_randoms_1x_name_template is None:
+    merged_randoms_1x_name_template =  config.get('dir','merged_randoms_1x_name_template')
+if merged_randoms_nx_name_template is None:
+    merged_randoms_nx_name_template =  config.get('dir','merged_randoms_nx_name_template')
+if merged_shells_name_template is None:
+    merged_shells_name_template     =  config.get('dir','merged_shells_name_template')
+
 if shellnums is None:
     try:
         shellnums = config.get('sim', 'shellnums')
     except:
         shellnums = None
+
 boxL              = config.getint('sim', 'boxL')
 shellwidth        = config.getint('sim','shellwidth')
 if shellnums is None:
@@ -209,12 +236,6 @@ for i, galtype in enumerate(["qso", "lrg", "elg"]):
     nz_pars.append(nz_par)
 
 
-if not os.path.exists(f"{dir_out}/cutsky"):
-    os.system(f"mkdir {dir_out}/cutsky")
-if not os.path.exists(f"{dir_out}/cutsky/shells"):
-    os.system(f"mkdir {dir_out}/cutsky/shells")
-
-
 ### Running camb to get comoving distances
 
 # Load all parameters from camb file 
@@ -240,7 +261,8 @@ except:
 
 
 ### Loop over galtypes and shells for galaxies and randoms
-args = product(shellnums, nz_pars, [nrandoms], [dir_out])
+args = product(shellnums, nz_pars, [nrandoms], [dir_out],
+               [lightcone_name_template], [output_name_template], [random_name_template])
 if pool is not None:
     if not pool.is_master():
         pool.wait()
@@ -260,13 +282,13 @@ if flag:
     for nz_par in nz_pars:
         galtype = nz_par["galtype_index"]
 
-        out_fname = f"{dir_out}cutsky/UNIT_lightcone_multibox_{nz_par['galtype'].upper()}_footprint_nz.fits"
+        out_fname = dir_out+merged_shells_name_template.format(nz_par['galtype'].upper())
         if not os.path.exists(out_fname):
             print('Merging shells into single file')
             begin = time.perf_counter()
 
             shells = []
-            shell_fnames = f"{dir_out}cutsky/shells/lightcone_multibox_galtype{galtype}_*_footprint_nz.fits"
+            shell_fnames = dir_out+output_name_template.format(galtype, "*")
             for f in glob.glob(shell_fnames):
                 shells.append(Table.read(f))
             joint_table = vstack(shells)
@@ -281,10 +303,10 @@ if flag:
         print('Merging random shells into single file')
         begin = time.perf_counter()
         for j in range(nrandoms):
-            out_1x = f"{dir_out}cutsky/randoms_1x_lightcone_multibox_{nz_par['galtype'].upper()}_footprint_nz_{j}.fits"
+            out_1x = dir_out+merged_randoms_1x_name_template.format(nz_par['galtype'].upper(), j)
             if not os.path.exists(out_1x):
                 shells = []
-                shell_fnames = f"{dir_out}cutsky/shells/randoms_{j}_lightcone_multibox_galtype{galtype}_*_footprint_nz.fits"
+                shell_fnames = dir_out+random_name_template.format(j, galtype, "*")
                 for f in glob.glob(shell_fnames):
                     shells.append(Table.read(f))
                 random_1x_joint = vstack(shells)
@@ -296,11 +318,11 @@ if flag:
         end = time.perf_counter()
         print(f'Done! (took {end - begin} seconds)')
 
-        out_nx = f"{dir_out}cutsky/randoms_{nrandoms}x_lightcone_multibox_{nz_par['galtype'].upper()}_footprint_nz.fits"
+        out_nx = dir_out+merged_randoms_nx_name_template.format(nrandoms, nz_par['galtype'].upper())
         if not os.path.exists(out_nx):
             print('Joining all randoms')
             begin = time.perf_counter()
-            random_1x_fnames = f"{dir_out}cutsky/randoms_1x_lightcone_multibox_{nz_par['galtype'].upper()}_footprint_nz_*.fits"
+            random_1x_fnames = dir_out+merged_randoms_1x_name_template.format(nz_par['galtype'].upper(), '*')
 
             randoms_1x = []
             for f in glob.glob(random_1x_fnames):
